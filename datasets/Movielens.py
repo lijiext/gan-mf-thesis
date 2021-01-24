@@ -74,7 +74,7 @@ class Movielens(DataReader):
 
         self.version = version
         self.DATASET_NAME = 'Movielens' + self.version
-        tmp = self.data_files[self.version].split(os.path.sep)
+        tmp = self.data_files[self.version].split('/')
         self.dataset_dir = tmp[0]
         self.data_file = tmp[1]
 

@@ -22,6 +22,11 @@ import numpy as np
 import tensorflow as tf
 import scipy.sparse as sps
 import multiprocessing as mp
+proxy = 'http://127.0.0.1:10809'
+os.environ['http_proxy'] = proxy
+os.environ['HTTP_PROXY'] = proxy
+os.environ['https_proxy'] = proxy
+os.environ['HTTPS_PROXY'] = proxy
 
 warnings.filterwarnings('ignore', category=UserWarning)
 warnings.filterwarnings('ignore', category=FutureWarning)
@@ -32,16 +37,15 @@ os.environ['KMP_WARNINGS'] = '0'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import skopt
-from skopt.space.space import Real, Integer, Categorical
+from skopt.callbacks import CheckpointSaver
 from skopt import gp_minimize, dummy_minimize
+from skopt.space.space import Real, Integer, Categorical
 
-from datasets.Jester import Jester
 from datasets.LastFM import LastFM
 from datasets.CiaoDVD import CiaoDVD
 from datasets.Movielens import Movielens
 from datasets.Delicious import Delicious
-from datasets.BookCrossing import BookCrossing
-from datasets.AmazonMusic import AmazonMusic
+
 
 from Base.Evaluation.Evaluator import EvaluatorHoldout
 from Base.NonPersonalizedRecommender import TopPop, Random
@@ -49,18 +53,17 @@ from Base.NonPersonalizedRecommender import TopPop, Random
 import GANRec as gans
 from GANRec.GANMF import GANMF
 from GANRec.CFGAN import CFGAN
+from GANRec.DisGANMF import DisGANMF
+from GANRec.DeepGANMF import DeepGANMF
 
 from MatrixFactorization.IALSRecommender import IALSRecommender
 from MatrixFactorization.PureSVDRecommender import PureSVDRecommender
 from MatrixFactorization.NMFRecommender import NMFRecommender
-from MatrixFactorization.Cython.MatrixFactorization_Cython import MatrixFactorization_BPR_Cython, \
-    MatrixFactorization_FunkSVD_Cython, MatrixFactorization_AsySVD_Cython
+from MatrixFactorization.Cython.MatrixFactorization_Cython import MatrixFactorization_BPR_Cython
 
-# Seed for reproducibility of results and consistent initialization of weights/splitting of dataset
+from SLIM_BPR.Cython.SLIM_BPR_Cython import SLIM_BPR_Cython
+
 seed = 1337
-# random.seed(seed)
-# np.random.seed(seed)
-# tf.set_random_seed(seed)
 
 # Generic parameters for each dataset
 dataset_kwargs = {}
@@ -68,14 +71,16 @@ dataset_kwargs['use_local'] = True
 dataset_kwargs['force_rebuild'] = True
 dataset_kwargs['implicit'] = True
 dataset_kwargs['save_local'] = False
-dataset_kwargs['verbose'] = False
+dataset_kwargs['verbose'] = True
 dataset_kwargs['split'] = True
 dataset_kwargs['split_ratio'] = [0.8, 0.2, 0]
 dataset_kwargs['min_ratings'] = 2
 
 URM_suffixes = ['_URM_train.npz', '_URM_test.npz', '_URM_validation.npz', '_URM_train_small.npz', '_URM_early_stop.npz']
-all_datasets = [LastFM, CiaoDVD, Delicious, '100K', '1M', '10M', AmazonMusic]
-early_stopping_algos = [IALSRecommender, MatrixFactorization_BPR_Cython]
+all_datasets = [LastFM, CiaoDVD, Delicious, '100K', '1M', '10M']
+name_datasets = [d if isinstance(d, str) else d.DATASET_NAME for d in all_datasets]
+all_recommenders = ['TopPop', 'Random', 'PureSVD', 'ALS', 'BPR', 'SLIMBPR', 'CFGAN', 'GANMF', 'DisGANMF', 'DeepGANMF', 'fullGANMF']
+early_stopping_algos = [IALSRecommender, MatrixFactorization_BPR_Cython, SLIM_BPR_Cython]
 
 train_mode = ''
 
@@ -181,7 +186,7 @@ class RecSysExp:
 
         self.evaluator_validation = EvaluatorHoldout(self.URM_validation, [self.at], exclude_seen=True)
         self.evaluator_earlystop = EvaluatorHoldout(self.URM_early_stop, [self.at], exclude_seen=True)
-        self.evaluatorTest = EvaluatorHoldout(self.URM_test, [self.at, 10, 20], exclude_seen=True, minRatingsPerUser=2)
+        self.evaluatorTest = EvaluatorHoldout(self.URM_test, [self.at, 10, 20, 50], exclude_seen=True, minRatingsPerUser=2)
 
         self.fit_params = {}
 
@@ -249,29 +254,32 @@ class RecSysExp:
         self.build_fit_params(params)
 
         # Create the model and fit it.
-        if self.isGAN:
-            model = self.recommender_class(self.URM_train_small, mode=train_mode, is_experiment=True)
-            model.logsdir = self.logsdir
-            fit_early_params = dict(self.fit_params)
-            fit_early_params.update(self.my_early_stopping)
-            last_epoch = model.fit(**fit_early_params)
-
-            # Save the right number of epochs that produces the current model
-            if last_epoch != self.fit_params['epochs']:
-                self.fit_params['epochs'] = last_epoch - \
-                                            self.my_early_stopping['allow_worse'] * self.my_early_stopping['freq']
-        
-        else:
-            model = self.recommender_class(self.URM_train_small)
-            if self.recommender_class in early_stopping_algos:
+        try:
+            if self.isGAN:
+                model = self.recommender_class(self.URM_train_small, mode=train_mode, seed=seed, is_experiment=True)
+                model.logsdir = self.logsdir
                 fit_early_params = dict(self.fit_params)
-                fit_early_params.update(self.early_stopping_parameters)
-                model.fit(**fit_early_params)
-            else:
-                model.fit(**self.fit_params)
+                fit_early_params.update(self.my_early_stopping)
+                last_epoch = model.fit(**fit_early_params)
 
-        results_dic, results_run_string = self.evaluator_validation.evaluateRecommender(model)
-        fitness = -results_dic[self.at][self.metric]
+                # Save the right number of epochs that produces the current model
+                if last_epoch != self.fit_params['epochs']:
+                    self.fit_params['epochs'] = last_epoch - \
+                                                self.my_early_stopping['allow_worse'] * self.my_early_stopping['freq']
+
+            else:
+                model = self.recommender_class(self.URM_train_small)
+                if self.recommender_class in early_stopping_algos:
+                    fit_early_params = dict(self.fit_params)
+                    fit_early_params.update(self.early_stopping_parameters)
+                    model.fit(**fit_early_params)
+                else:
+                    model.fit(**self.fit_params)
+
+            results_dic, results_run_string = self.evaluator_validation.evaluateRecommender(model)
+            fitness = -results_dic[self.at][self.metric]
+        except tf.errors.ResourceExhaustedError:
+            return 0
 
         try:
             if fitness < self.best_res:
@@ -317,13 +325,29 @@ class RecSysExp:
         msg = 'Started ' + self.recommender_class.RECOMMENDER_NAME + ' ' + self.dataset_name
         subprocess.run(['telegram-send', msg])
 
+
+        U, I = self.URM_test.shape
+
+        if self.recommender_class == GANMF:
+            params.append(Integer(4, int(I * 0.75) if I <= 1024 else 1024, name='emb_dim', dtype=int))
+            self.fit_param_names.append('emb_dim')
+
+        if self.recommender_class == CFGAN or self.recommender_class == DeepGANMF:
+            params.append(Integer(4, int(I * 0.75) if I <= 1024 else 1024, name='d_nodes', dtype=int))
+            params.append(Integer(4, int(I * 0.75) if I <= 1024 else 1024, name='g_nodes', dtype=int))
+            self.fit_param_names.append('d_nodes')
+            self.fit_param_names.append('g_nodes')
+
+        if self.recommender_class == DisGANMF:
+            params.append(Integer(4, int(I * 0.75) if I <= 1024 else 1024, name='d_nodes', dtype=int))
+            self.fit_param_names.append('d_nodes')
+
         self.dimension_names = [p.name for p in params]
 
         '''
         Need to make sure that the max. value of `num_factors` parameters must be lower than
         the max(U, I)
         '''
-        U, I = self.URM_test.shape
         try:
             idx = self.dimension_names.index('num_factors')
             maxval = params[idx].bounds[1]
@@ -332,25 +356,36 @@ class RecSysExp:
         except ValueError:
             pass
 
-        if isinstance(self.recommender_class, GANMF):
-            params.append(Integer(4, int(I * 0.75) if I <= 1024 else 1024, name='emb_dim', dtype=int))
-
-        if isinstance(self.recommender_class, CFGAN):
-            params.append(Integer(4, int(I * 0.75) if I <= 1024 else 1024, name='d_nodes', dtype=int))
-            params.append(Integer(4, int(I * 0.75) if I <= 1024 else 1024, name='g_nodes', dtype=int))
-
         if len(params) > 0:
 
-            t_start = int(time.time())
+            # Check if there is already a checkpoint for this experiment
+            checkpoint_path = os.path.join(self.logsdir, 'checkpoint.pkl')
+            checkpoint_exists = True if os.path.exists(checkpoint_path) else False
+            checkpoint_saver = CheckpointSaver(os.path.join(self.logsdir, 'checkpoint.pkl'), compress=3)
 
             if seed is None:
                 seed = self.seed
 
+            t_start = int(time.time())
 
-            if self.method == 'bayesian':
-                results = gp_minimize(self.obj_func, params, n_calls=evals, x0=init_config, random_state=seed, verbose=True)
+            if checkpoint_exists:
+                previous_run = skopt.load(checkpoint_path)
+                if self.method == 'bayesian':
+                    results = gp_minimize(self.obj_func, params, n_calls=evals - len(previous_run.func_vals),
+                                          x0=previous_run.x_iters, y0=previous_run.func_vals, n_random_starts=0,
+                                          random_state=seed, verbose=True, callback=[checkpoint_saver])
+                else:
+                    results = dummy_minimize(self.obj_func, params, n_calls=evals - len(previous_run.func_vals),
+                                             x0=previous_run.x_iters, y0=previous_run.func_vals, random_state=seed,
+                                             verbose=True, callback=[checkpoint_saver])
             else:
-                results = dummy_minimize(self.obj_func, params, n_calls=evals, random_state=seed, verbose=True)
+
+                if self.method == 'bayesian':
+                    results = gp_minimize(self.obj_func, params, n_calls=evals, random_state=seed, verbose=True,
+                                          callback=[checkpoint_saver])
+                else:
+                    results = dummy_minimize(self.obj_func, params, n_calls=evals, random_state=seed, verbose=True,
+                                          callback=[checkpoint_saver])
 
             t_end = int(time.time())
 
@@ -370,6 +405,7 @@ class RecSysExp:
             self.build_fit_params(best_params.values())
 
         # Retrain with all training data
+        set_seed(seed)
         if self.isGAN:
             model = self.recommender_class(self.URM_train, mode=train_mode, is_experiment=True)
             model.logsdir = self.logsdir
@@ -413,9 +449,6 @@ def main(arguments):
     selected_exp = []
     selected_datasets = []
 
-    list_experiments = ['TopPop', 'Random', 'PureSVD', 'ALS', 'NMF', 'BPR', 'IRGAN', 'CFGAN', 'GANMF']
-    list_datasets = [d if isinstance(d, str) else d.DATASET_NAME for d in all_datasets]
-
     if '--build_datasets' in arguments:
         print('Building all necessary datasets required for the experiments. Disregarding other arguments! ' +
         'You will need to run this script again without --build_datasets in order to run experiments!')
@@ -441,9 +474,9 @@ def main(arguments):
         train_mode = 'item'
 
     for arg in arguments:
-        if not run_all and arg in list_datasets:
-            selected_datasets.append(all_datasets[list_datasets.index(arg)])
-        if arg in list_experiments:
+        if not run_all and arg in name_datasets:
+            selected_datasets.append(all_datasets[name_datasets.index(arg)])
+        if arg in all_recommenders:
             selected_exp.append(arg)
 
 
@@ -473,7 +506,7 @@ def main(arguments):
 
 
     bpr_dimensions = [
-        Categorical([1500], name='epochs'),
+        Categorical([150], name='epochs'),
         Integer(1, 250, name='num_factors', dtype=int),
         Categorical([128, 256, 512, 1024], name='batch_size'),
         Categorical(["adagrad", "adam"], name='sgd_mode'),
@@ -492,7 +525,20 @@ def main(arguments):
         Categorical(['nndsvda'], name='init_type'),
         Categorical(['frobenius', 'kullback-leibler'], name='beta_loss')
     ]
-    nmf_fit_params = ['num_factors', 'l1_ratio', 'solver', 'init_type', 'beta_loss']
+    nmf_fit_params = [d.name for d in nmf_dimensions]
+
+
+
+    slimbpr_dimensions = [
+        Integer(low=5, high=1000, prior='uniform', name='topK', dtype=int),
+        Categorical([150], name='epochs'),
+        Categorical([True, False], name='symmetric'),
+        Categorical(["sgd", "adagrad", "adam"], name='sgd_mode'),
+        Real(low=1e-9, high=1e-3, prior='log-uniform', name='lambda_i', dtype=float),
+        Real(low=1e-9, high=1e-3, prior='log-uniform', name='lambda_j', dtype=float),
+        Real(low=1e-4, high=1e-1, prior='log-uniform', name='learning_rate', dtype=float)
+    ]
+    slimbpr_fit_names = [d.name for d in slimbpr_dimensions]
 
 
 
@@ -521,9 +567,9 @@ def main(arguments):
 
     ganmf_dimensions = [
         Categorical([300], name='epochs'),
-        Integer(1, 250, name='num_factors', dtype=int),
+        Integer(low=1, high=250, name='num_factors', dtype=int),
         Categorical([64, 128, 256, 512, 1024], name='batch_size'),
-        Integer(1, 10, name='m', dtype=int),
+        Integer(low=1, high=10, name='m', dtype=int),
         Real(low=1e-4, high=1e-2, prior='log-uniform', name='d_lr', dtype=float),
         Real(low=1e-4, high=1e-2, prior='log-uniform', name='g_lr', dtype=float),
         Real(low=1e-6, high=1e-4, prior='log-uniform', name='d_reg', dtype=float),
@@ -536,6 +582,40 @@ def main(arguments):
     ganmf_fit_params = [d.name for d in ganmf_dimensions]
 
 
+
+    disgan_dimensions = [
+        Categorical([300], name='epochs'),
+        Categorical(['linear', 'tanh', 'relu', 'sigmoid'], name='d_hidden_act'),
+        Integer(low=1, high=5, prior='uniform', name='d_layers', dtype=int),
+        Integer(low=1, high=250, name='num_factors', dtype=int),
+        Categorical([64, 128, 256, 512, 1024], name='batch_size'),
+        Real(low=1e-4, high=1e-2, prior='log-uniform', name='d_lr', dtype=float),
+        Real(low=1e-4, high=1e-2, prior='log-uniform', name='g_lr', dtype=float),
+        Real(low=1e-6, high=1e-4, prior='log-uniform', name='d_reg', dtype=float),
+        Real(low=1e-2, high=0.5, prior='uniform', name='recon_coefficient', dtype=float)
+    ]
+    disgan_fit_params = [d.name for d in disgan_dimensions]
+
+
+
+    deepganmf_dimensions = [
+        Categorical([300], name='epochs'),
+        Categorical(['linear', 'tanh', 'relu', 'sigmoid'], name='d_hidden_act'),
+        Categorical(['linear', 'tanh', 'relu', 'sigmoid'], name='g_hidden_act'),
+        Categorical(['linear', 'tanh', 'relu', 'sigmoid'], name='g_output_act'),
+        Categorical([1, 3, 5], name='d_layers'),
+        Categorical([1, 2, 3, 4, 5], name='g_layers'),
+        Categorical([64, 128, 256, 512, 1024], name='batch_size'),
+        Integer(low=1, high=10, name='m', dtype=int),
+        Real(low=1e-4, high=1e-2, prior='log-uniform', name='d_lr', dtype=float),
+        Real(low=1e-4, high=1e-2, prior='log-uniform', name='g_lr', dtype=float),
+        Real(low=1e-6, high=1e-4, prior='log-uniform', name='d_reg', dtype=float),
+        Real(low=1e-2, high=0.5, prior='uniform', name='recon_coefficient', dtype=float),
+    ]
+    deepganmf_fit_params = [d.name for d in deepganmf_dimensions]
+
+
+
     dict_rec_classes['TopPop'] = TopPop
     dict_rec_classes['Random'] = Random
     dict_rec_classes['PureSVD'] = PureSVDRecommender
@@ -544,6 +624,9 @@ def main(arguments):
     dict_rec_classes['NMF'] = NMFRecommender
     dict_rec_classes['GANMF'] = GANMF
     dict_rec_classes['CFGAN'] = CFGAN
+    dict_rec_classes['DisGANMF'] = DisGANMF
+    dict_rec_classes['SLIMBPR'] = SLIM_BPR_Cython
+    dict_rec_classes['DeepGANMF'] = DeepGANMF
 
     dict_dimensions['TopPop'] = []
     dict_dimensions['Random'] = []
@@ -553,6 +636,9 @@ def main(arguments):
     dict_dimensions['NMF'] = nmf_dimensions
     dict_dimensions['GANMF'] = ganmf_dimensions
     dict_dimensions['CFGAN'] = cfgan_dimensions
+    dict_dimensions['DisGANMF'] = disgan_dimensions
+    dict_dimensions['SLIMBPR'] = slimbpr_dimensions
+    dict_dimensions['DeepGANMF'] = deepganmf_dimensions
 
     dict_fit_params['TopPop'] = []
     dict_fit_params['Random'] = []
@@ -562,8 +648,9 @@ def main(arguments):
     dict_fit_params['NMF'] = nmf_fit_params
     dict_fit_params['GANMF'] = ganmf_fit_params
     dict_fit_params['CFGAN'] = cfgan_fit_params
-
-    # dict_init_configs['GANMF'] = [300, 10, 128, 3, 1e-3, 1e-3, 1e-4, 0.05, 128]
+    dict_fit_params['DisGANMF'] = disgan_fit_params
+    dict_fit_params['SLIMBPR'] = slimbpr_fit_names
+    dict_fit_params['DeepGANMF'] = deepganmf_fit_params
 
     pool_list_experiments = []
     pool_list_dimensions = []
@@ -593,7 +680,7 @@ def main(arguments):
 
 
 if __name__ == '__main__':
-    # Run this script as `python RecSysExp.py [--build_datasets] [experiment_name] [--run_all] [dataset_name] [--no_mp]`
+    # Run this script as `python RecSysExp.py [--build_datasets] experiment_name [--run_all] dataset_name [--no_mp]`
     assert len(sys.argv) >= 2, 'Number of arguments must be greater than 2, given {:d}'.format(len(sys.argv))
     arguments = sys.argv[1:]
     main(arguments)

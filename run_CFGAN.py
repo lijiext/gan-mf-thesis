@@ -25,14 +25,14 @@ simplefilter(action='ignore', category=UserWarning)
 simplefilter(action='ignore', category=FutureWarning)
 
 use_gpu = False
-verbose = False
+verbose = True
 only_build = False
 transposed = False
 
 if not use_gpu:
     os.environ['CUDA_VISIBLE_DEVICES'] = ''
 
-reader = Movielens(version='100K', split_ratio=[0.8, 0.2, 0.0], use_local=True, implicit=True, verbose=False, seed=seed)
+reader = Movielens(version='100K', split_ratio=[0.8, 0.2, 0.0], use_local=True, implicit=True, verbose=True, seed=seed)
 
 URM_train = reader.get_URM_train(transposed=transposed)
 # URM_validation = reader.get_URM_validation(transposed=transposed)
