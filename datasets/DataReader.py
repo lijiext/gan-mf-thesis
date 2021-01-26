@@ -6,7 +6,6 @@
 @email: vindervishaj@gmail.com
 '''
 
-
 import os
 import sys
 import math
@@ -23,18 +22,21 @@ from Utils_ import gini
 import scipy.sparse as sps
 import matplotlib.pyplot as plt
 
+
 class DataReader(object):
     """
+    实现datasets通用方法的泛型类
     Generic class that implements utilities for datasets
     """
 
     # MANUALLY SET this taking into account project root
+    # 手动设置datasets路径
     # datasets_dir = os.path.join(CONSTANTS['root_dir'], 'datasets')
     all_datasets_dir = os.path.dirname(os.path.abspath(__file__))
 
-
     def __init__(self,
-                 use_cols={'user_id':0, 'item_id':1, 'rating':2},
+                 # MovieLen格式userId::movieId::rating::UnixTimeStamp
+                 use_cols={'user_id': 0, 'item_id': 1, 'rating': 2},
                  split_ratio=[0.6, 0.2, 0.2],
                  stratified_on='item_popularity',
                  header=False,
@@ -50,7 +52,7 @@ class DataReader(object):
                  seed=1234
                  ):
         """
-        Constructor
+        Constructor 构造方法
         """
 
         super().__init__()
@@ -61,13 +63,15 @@ class DataReader(object):
         self.use_local = use_local
         self.force_rebuild = force_rebuild
         self.save_local = save_local
+        # 最小评分
         self.min_ratings = min_ratings
         self.verbose = verbose
-
+        # 使数据集的拿一些列
         self.use_cols = use_cols
         self.split_ratio = split_ratio
-        self.stratified_on = stratified_on  #TODO: stratification as popularity and considering user/item as class (sklearn-like)
+        self.stratified_on = stratified_on  # TODO: stratification as popularity and considering user/item as class (sklearn-like)
         self.header = header
+        # 分隔符
         self.delimiter = delim
         self.remove_top_pop = remove_top_pop
         self.duplicate = duplicate
@@ -76,7 +80,6 @@ class DataReader(object):
             self.implicit = True
         else:
             self.implicit = implicit
-
 
         self.config = {
             'use_cols': self.use_cols,
@@ -91,11 +94,11 @@ class DataReader(object):
             'seed': seed
         }
 
-
     def build_local(self, ratings_file, split=True):
         """
+        在本地构建，如果没有找到datasets文件则build_remote
         Builds sparse matrices from ratings file
-
+        根据ratings文件构建稀疏矩阵
         Parameters
         ----------
         ratings_file: str
@@ -106,15 +109,17 @@ class DataReader(object):
         """
         if os.path.isfile(ratings_file):
             self.URM = self.build_URM(file=ratings_file, use_cols=self.use_cols, delimiter=self.delimiter,
-                                      header=self.header, save_local=self.save_local, remove_top_pop=self.remove_top_pop,
+                                      header=self.header, save_local=self.save_local,
+                                      remove_top_pop=self.remove_top_pop,
                                       duplicate=self.duplicate, verbose=self.verbose)
-            
+
             if split:
                 self.URM_train, \
                 self.URM_test, \
                 self.URM_validation = self.split_urm(self.URM, split_ratio=self.split_ratio, save_local=self.save_local,
-                                                    min_ratings=self.min_ratings, verbose=self.verbose, implicit=self.implicit,
-                                                    save_dir=os.path.dirname(ratings_file))
+                                                     min_ratings=self.min_ratings, verbose=self.verbose,
+                                                     implicit=self.implicit,
+                                                     save_dir=os.path.dirname(ratings_file))
 
             try:
                 with open(os.path.join(os.path.dirname(ratings_file), 'config.pkl'), 'wb') as f:
@@ -124,13 +129,13 @@ class DataReader(object):
 
         else:
             print(ratings_file + ' not found. Building remotely...')
-            self.build_remote()
-
+            self.build_remote()  #没有找到数据文件
 
     def get_ratings_file(self):
         """
         Downloads the dataset and sets self.ratings_file. If downlaoded file is a zip file, it extracts it, otherwise
         it saves a .csv file
+        下载数据集文件，解压zip
         """
         downloaded_file = self.download_url(self.url, verbose=self.verbose)
         extension = os.path.splitext(downloaded_file)[1]
@@ -138,40 +143,45 @@ class DataReader(object):
             zfile = zipfile.ZipFile(downloaded_file)
             try:
                 self.ratings_file = zfile.extract(self.data_file,
-                                    os.path.join(self.all_datasets_dir, os.path.dirname(downloaded_file)))
-                # Archive will be deleted
+                                                  os.path.join(self.all_datasets_dir, os.path.dirname(downloaded_file)))
+                # Archive will be deleted 删除源文件
                 os.remove(downloaded_file)
             except (FileNotFoundError, zipfile.BadZipFile):
-                print('Either file ' + self.data_file + ' not found or ' + os.path.split(self.url)[-1] + ' is corrupted',
-                      file=sys.stderr)
+                print(
+                    'Either file ' + self.data_file + ' not found or ' + os.path.split(self.url)[-1] + ' is corrupted',
+                    file=sys.stderr)
                 raise
         elif extension == '.csv':
             self.ratings_file = downloaded_file
 
-    
     def build_remote(self, split=True):
         """
         Builds sparse matrices
+        构建稀疏矩阵
         """
+
+        # 下载数据文件
         self.get_ratings_file()
+        # 开始构建
         self.URM = self.build_URM(file=self.ratings_file, use_cols=self.use_cols, delimiter=self.delimiter,
-                                    header=self.header, save_local=self.save_local, remove_top_pop=self.remove_top_pop,
-                                    duplicate=self.duplicate, verbose=self.verbose)
+                                  header=self.header, save_local=self.save_local, remove_top_pop=self.remove_top_pop,
+                                  duplicate=self.duplicate, verbose=self.verbose)
 
         if split:
             self.URM_train, \
             self.URM_test, \
             self.URM_validation = self.split_urm(self.URM, split_ratio=self.split_ratio, save_local=self.save_local,
-                                                    min_ratings=self.min_ratings, verbose=self.verbose, implicit=self.implicit,
-                                                    save_dir=os.path.dirname(self.ratings_file))
+                                                 min_ratings=self.min_ratings, verbose=self.verbose,
+                                                 implicit=self.implicit,
+                                                 save_dir=os.path.dirname(self.ratings_file))
 
+        # 序列化配置文件
         try:
             with open(os.path.join(os.path.dirname(self.ratings_file), 'config.pkl'), 'wb') as f:
                 pickle.dump(self.config, f)
         except AttributeError:
             print('config is not initialized in ' + self.__class__.__name__ + '!', file=sys.stderr)
             raise
-
 
     def download_url(self, url, verbose=True):
         """
@@ -201,11 +211,14 @@ class DataReader(object):
             chunk_size = 1024 * 4
 
             filename = url.split('/')[-1]
-            abs_path = os.path.join(self.all_datasets_dir,  self.dataset_dir, filename)
+            abs_path = os.path.join(self.all_datasets_dir, self.dataset_dir, filename)
             os.makedirs(os.path.dirname(abs_path), exist_ok=True)
 
             desc = 'Downloading ' + self.DATASET_NAME + ' from ' + url
-            pbar = tqdm(total=total_size, desc=desc, unit='B', unit_scale=True, unit_divisor=1024, disable=not verbose and total_size != 0)
+
+            # 进度条
+            pbar = tqdm(total=total_size, desc=desc, unit='B', unit_scale=True, unit_divisor=1024,
+                        disable=not verbose and total_size != 0)
 
             with open(abs_path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=chunk_size):
@@ -218,7 +231,7 @@ class DataReader(object):
         else:
             raise requests.HTTPError('Request for download returned with status ' + response.status_code)
 
-
+    # 从kaggle下载数据集 需要配置API key
     def download_kaggle_dataset(self, dataset, files='all', verbose=True):
         """
         Downloads a dataset from Kaggle as specified by parameter dataset.
@@ -230,7 +243,6 @@ class DataReader(object):
                 If `all` then all the files of the dataset will be downloaded
         :param verbose: Default True
         """
-
 
         # By default kaggle.json should reside within ~/.kaggle
         kaggle_filepath = os.path.expanduser('~/.kaggle/kaggle.json')
@@ -266,9 +278,11 @@ class DataReader(object):
             subprocess.run([kaggle_cmdpath, 'datasets', 'download', dataset, '-p', dataset_path, '--force'])
         elif isinstance(files, list):
             for f in files:
-                subprocess.run([kaggle_cmdpath, 'datasets', 'download', dataset, '-p', dataset_path, '--force', '-f', f])
+                subprocess.run(
+                    [kaggle_cmdpath, 'datasets', 'download', dataset, '-p', dataset_path, '--force', '-f', f])
         elif isinstance(files, str):
-            subprocess.run([kaggle_cmdpath, 'datasets', 'download', dataset, '-p', dataset_path, '--force', '-f', files])
+            subprocess.run(
+                [kaggle_cmdpath, 'datasets', 'download', dataset, '-p', dataset_path, '--force', '-f', files])
         else:
             raise ValueError('files argument accepts either `all`, a single filename or a list of filenames.')
 
@@ -281,8 +295,7 @@ class DataReader(object):
                 zfile = zipfile.ZipFile(fpath)
                 zfile.extractall(path=dataset_path)
                 os.remove(fpath)
-        #TODO: need to find a fast way to merge all files downloaded
-
+        # TODO: need to find a fast way to merge all files downloaded
 
     def read_interactions(self,
                           file,
@@ -332,6 +345,7 @@ class DataReader(object):
             if verbose:
                 print('Filling the full URM...')
 
+            # Netfilx数据集需要预处理 并且十分庞大
             # # Netflix Dataset requires preprocessing and it's big so
             # # it is better to generate the matrices in one reading
             # if netflix_process:
@@ -364,7 +378,7 @@ class DataReader(object):
                     rows.append(r)
                     cols.append(c)
                     data.append(1.0)
-                    
+
             else:
                 for i, line in enumerate(f):
                     row_data = line.split(delimiter)
@@ -387,8 +401,7 @@ class DataReader(object):
 
         del unique_interactions
         return rows, cols, data
-    
-    
+
     def build_URM(self,
                   file,
                   use_cols={'user_id': 0, 'item_id': 1, 'rating': 2},
@@ -400,7 +413,7 @@ class DataReader(object):
                   verbose=True):
         """
         Builds the URM from interactions data file.
-
+        根据data文件构建URM模型
         Parameters
         ----------
         file: str
@@ -418,6 +431,7 @@ class DataReader(object):
         save_local: boolean, default True
             Flag indicating whether the URM should be saved locally.
 
+        从最终的URM中移除的 最受欢迎 的 item的分数
         remove_top_pop: float, default 0.0
             Fraction of most popular items to be removed from the final URM.
 
@@ -430,6 +444,7 @@ class DataReader(object):
 
         Returns
         -------
+        返回稀疏矩阵ijv形 COOrdinate
         URM: scipy.sparse.coo_matrix
             The full URM in COO format.
         """
@@ -462,6 +477,7 @@ class DataReader(object):
 
         self.URM = sps.coo_matrix((data, (coo_rows, coo_cols)), shape=shape, dtype=np.float32)
 
+        # 在这里保存URM，使用npz格式保存稀疏矩阵，采用压缩方式
         if save_local:
             if verbose:
                 print('Saving full URM locally...')
@@ -474,12 +490,12 @@ class DataReader(object):
         data, rows, cols = None, None, None
 
         return self.URM
-    
-    
-    def split_urm(self, URM=None, split_ratio=[0.6, 0.2, 0.2], save_local=True, implicit=False, min_ratings=2, verbose=True, save_dir=None):
+
+    def split_urm(self, URM=None, split_ratio=[0.6, 0.2, 0.2], save_local=True, implicit=False, min_ratings=2,
+                  verbose=True, save_dir=None):
         """
         Creates sparse matrices from full URM.
-
+        从URM中构造稀疏矩阵
         Parameters
         ----------
         URM: scipy.sparse.coo_matrix
@@ -489,6 +505,7 @@ class DataReader(object):
             Train-Test-Validation split ratio. Must sum to 1.
 
         save_local: boolean, default True
+        是否保存构造的稀疏矩阵
             Flag indicating whether to save the resulting sparse matrices locally.
 
         implicit: boolean, default False
@@ -549,7 +566,7 @@ class DataReader(object):
         # Doing this through iteration, need to find a better solution
         choice = []
         for u in range(URM_csr.shape[0]):
-            indices = URM_csr.indices[URM_csr.indptr[u]: URM_csr.indptr[u+1]]
+            indices = URM_csr.indices[URM_csr.indptr[u]: URM_csr.indptr[u + 1]]
             no_interactions = len(indices)
             if no_interactions == 1:
                 choice.extend(['train'])
@@ -565,8 +582,8 @@ class DataReader(object):
                 selection = np.random.choice(['train', 'test', 'valid'], p=split_ratio, size=no_interactions)
 
                 if (selection == 'train').sum() == 0 or \
-                    (split_ratio[1] != 0 and (selection == 'test').sum() == 0) or \
-                    (split_ratio[2] != 0 and (selection == 'validation').sum() == 0):
+                        (split_ratio[1] != 0 and (selection == 'test').sum() == 0) or \
+                        (split_ratio[2] != 0 and (selection == 'validation').sum() == 0):
                     no_trains = int(no_interactions * split_ratio[0])
                     no_tests = math.ceil(no_interactions * split_ratio[1])
 
@@ -586,9 +603,14 @@ class DataReader(object):
 
         choice = np.array(choice)
         shape = URM.shape
-        URM_train = sps.coo_matrix((URM.data[choice == 'train'], (URM.row[choice == 'train'], URM.col[choice == 'train'])), shape=shape, dtype=np.float32)
-        URM_test = sps.coo_matrix((URM.data[choice == 'test'], (URM.row[choice == 'test'], URM.col[choice == 'test'])), shape=shape, dtype=np.float32)
-        URM_validation = sps.coo_matrix((URM.data[choice == 'valid'], (URM.row[choice == 'valid'], URM.col[choice == 'valid'])), shape=shape, dtype=np.float32)
+        URM_train = sps.coo_matrix(
+            (URM.data[choice == 'train'], (URM.row[choice == 'train'], URM.col[choice == 'train'])), shape=shape,
+            dtype=np.float32)
+        URM_test = sps.coo_matrix((URM.data[choice == 'test'], (URM.row[choice == 'test'], URM.col[choice == 'test'])),
+                                  shape=shape, dtype=np.float32)
+        URM_validation = sps.coo_matrix(
+            (URM.data[choice == 'valid'], (URM.row[choice == 'valid'], URM.col[choice == 'valid'])), shape=shape,
+            dtype=np.float32)
 
         self.URM_train = URM_train.tocsr()
         self.URM_test = URM_test.tocsr()
@@ -597,18 +619,17 @@ class DataReader(object):
         if save_local and save_dir is not None:
             if verbose:
                 print('Saving matrices locally...')
-
+            # 保存CSR格式的 train test validation稀疏矩阵
             sps.save_npz(os.path.join(save_dir, 'URM_train'), self.URM_train, compressed=True)
             sps.save_npz(os.path.join(save_dir, 'URM_test'), self.URM_test, compressed=True)
             sps.save_npz(os.path.join(save_dir, 'URM_validation'), self.URM_validation, compressed=True)
 
         return self.URM_train, self.URM_test, self.URM_validation
 
-
     def get_CV_folds(self, URM=None, folds=10, verbose=True):
         """
         Generator function implementing cross-validation from interactions data file.
-
+        交叉验证 训练集的样本可能成为下一次的测试集的样本
         :param URM: URM to use for generating the folds. If None, the attribute URM of the class will be used.
         :param folds: Number of CV folds
         :param verbose: True to print logging
@@ -629,10 +650,11 @@ class DataReader(object):
         choice = np.random.choice(range(folds), size=len(URM.data))
         shape = URM.shape
         for i in range(folds):
-            URM_test = sps.coo_matrix((URM.data[choice == i], (URM.row[choice == i], URM.col[choice == i])), shape=shape, dtype=np.float32)
-            URM_train = sps.coo_matrix((URM.data[choice != i], (URM.row[choice != i], URM.col[choice != i])), shape=shape, dtype=np.float32)
+            URM_test = sps.coo_matrix((URM.data[choice == i], (URM.row[choice == i], URM.col[choice == i])),
+                                      shape=shape, dtype=np.float32)
+            URM_train = sps.coo_matrix((URM.data[choice != i], (URM.row[choice != i], URM.col[choice != i])),
+                                       shape=shape, dtype=np.float32)
             yield URM_train.tocsr(), URM_test.tocsr()
-
 
     def get_URM_full(self, transposed=False):
         try:
@@ -644,7 +666,6 @@ class DataReader(object):
             print('URM is not initialized in ' + self.__class__.__name__ + '!', file=sys.stderr)
             raise
 
-
     def get_URM_train(self, transposed=False):
         try:
             if transposed:
@@ -653,7 +674,6 @@ class DataReader(object):
         except AttributeError:
             print('URM_train is not initialized in ' + self.__class__.__name__ + '!')
             raise
-
 
     def get_URM_test(self, transposed=False):
         try:
@@ -664,7 +684,6 @@ class DataReader(object):
             print('URM_test is not initialized in ' + self.__class__.__name__ + '!', file=sys.stderr)
             raise
 
-
     def get_URM_validation(self, transposed=False):
         try:
             if transposed:
@@ -674,15 +693,17 @@ class DataReader(object):
             print('URM_validation is not initialized in ' + self.__class__.__name__ + '!', file=sys.stderr)
             raise
 
-
     def process(self, split=True):
         """
         Read prebuild sparse matrices or generate them from ratings file.
+        处理函数
+        读取 预处理 的 稀疏矩阵 或 从数据文件中生成
         """
 
         # Check if files URM_train, URM_test and URM_validation OR URM already exists first
         # If not, build locally the sparse matrices using the ratings' file
 
+        # 数据文件已存在
         if self.use_local:
             ratings_file = os.path.join(self.all_datasets_dir, self.dataset_dir, self.data_file)
             self.matrices_path = os.path.join(self.all_datasets_dir, os.path.dirname(ratings_file))
@@ -692,7 +713,7 @@ class DataReader(object):
             valid_path = os.path.join(self.matrices_path, 'URM_validation.npz')
             urm_path = os.path.join(self.matrices_path, 'URM.npz')
 
-            # Read the build config and compare with current build
+            # Read the build config and compare with current build  读取config.pkl并与当前config比较
             config_path = os.path.join(self.matrices_path, 'config.pkl')
             if os.path.isfile(config_path):
                 with open(config_path, 'rb') as f:
@@ -701,7 +722,8 @@ class DataReader(object):
                 try:
                     if self.config != config:
                         if self.verbose:
-                            print('Local matrices built differently from requested build. Setting force_rebuild = True.')
+                            print(
+                                'Local matrices built differently from requested build. Setting force_rebuild = True.')
                         self.force_rebuild = True
                 except AttributeError:
                     print('config is not initialized in ' + self.__class__.__name__ + '!', file=sys.stderr)
@@ -716,7 +738,7 @@ class DataReader(object):
                 if os.path.isfile(train_path) and os.path.isfile(test_path) and os.path.isfile(valid_path):
                     if self.verbose:
                         print('Loading train, test and validation matrices locally...')
-
+                    # 加载训练 测试 验证 矩阵 在这里加载pnz文件
                     self.URM_train = sps.load_npz(train_path)
                     self.URM_test = sps.load_npz(test_path)
                     self.URM_validation = sps.load_npz(valid_path)
@@ -727,7 +749,7 @@ class DataReader(object):
                 elif os.path.isfile(urm_path):
                     if self.verbose:
                         print('Building from full URM...')
-
+                    # 从完整的URM中构建
                     if os.path.isfile(urm_path):
                         self.URM = sps.load_npz(urm_path)
 
@@ -735,16 +757,18 @@ class DataReader(object):
                             self.URM_train, \
                             self.URM_test, \
                             self.URM_validation = self.split_urm(self.URM, split_ratio=self.split_ratio,
-                                                                save_local=self.save_local, min_ratings=self.min_ratings,
-                                                                verbose=self.verbose, save_dir=os.path.dirname(urm_path))
+                                                                 save_local=self.save_local,
+                                                                 min_ratings=self.min_ratings,
+                                                                 verbose=self.verbose,
+                                                                 save_dir=os.path.dirname(urm_path))
                     else:
                         if self.verbose:
                             print("Full URM not found. Building from ratings' file...")
-                            
+                        # 找不到URM文件，从rating文件中构建
                         if os.path.exists(ratings_file):
                             self.build_local(ratings_file, split)
                         else:
-                            self.build_remote(split)    
+                            self.build_remote(split)
                 else:
                     if self.verbose:
                         print("Matrices not found. Building from ratings' file...")
@@ -757,7 +781,7 @@ class DataReader(object):
             else:
                 if self.verbose:
                     print("Rebuilding asked. Building from ratings' file...")
-
+                # 没有配置文件 需要重建
                 if os.path.exists(ratings_file):
                     self.build_local(ratings_file, split)
                 else:
@@ -770,6 +794,7 @@ class DataReader(object):
     def describe(self, save_plots=False, path=None):
         """
         Describes the full URM
+
         """
 
         print('Dataset:', self.DATASET_NAME)
@@ -794,22 +819,24 @@ class DataReader(object):
             gini_index = gini(users_per_item)
 
             print('Users: {:d}\nItems: {:d}\nRatings: {:d}\nDensity: {:.5f}%\nCold start users: {:d}\n'
-                    'Minimum items per user: {:d}\nMaximum items per user: {:d}\nAvg.items per user: {:.2f}\n'
-                    'Gini index: {:.2f}\nUnique ratings:{}\n'
-                  .format(no_users, no_items, ratings, density*100, cold_start_users,
-                        min_item_per_user, max_item_per_user, mean_item_per_user, gini_index, unique_ratings))
+                  'Minimum items per user: {:d}\nMaximum items per user: {:d}\nAvg.items per user: {:.2f}\n'
+                  'Gini index: {:.2f}\nUnique ratings:{}\n'
+                  .format(no_users, no_items, ratings, density * 100, cold_start_users,
+                          min_item_per_user, max_item_per_user, mean_item_per_user, gini_index, unique_ratings))
 
             plt.style.use('fivethirtyeight')
             # sns.set_style('darkgrid')
             sns.set_context('paper', font_scale=1.75)
 
             fig1, ax1 = plt.subplots(figsize=(10, 10))
-            ax1 = sns.distplot(items_per_user, rug=False, kde=False, label='Distribution of per-user number of interactions', ax=ax1)
+            ax1 = sns.distplot(items_per_user, rug=False, kde=False,
+                               label='Distribution of per-user number of interactions', ax=ax1)
             ax1.set_ylabel('users', fontsize=20)
             ax1.set_xlabel('no. interactions per user', fontsize=20)
 
             fig3, ax3 = plt.subplots(figsize=(10, 10))
-            ax3 = sns.distplot(profile_length_95th, rug=False, kde=False, label='Distribution of 95th percentile per-user number of interactions', ax=ax3)
+            ax3 = sns.distplot(profile_length_95th, rug=False, kde=False,
+                               label='Distribution of 95th percentile per-user number of interactions', ax=ax3)
             ax3.set_ylabel('users', fontsize=20)
             ax3.set_xlabel('no. interactions per user', fontsize=20)
 
@@ -819,8 +846,10 @@ class DataReader(object):
             # ax2.set_xlabel('no. interactions per item')
 
             if save_plots:
-                fig1.savefig(os.path.join(path if path is not None else self.matrices_path, self.DATASET_NAME + '_user_interaction_distr.png'), bbox_inches="tight")
-                fig3.savefig(os.path.join(path if path is not None else self.matrices_path, self.DATASET_NAME + '_95th_interaction_distr.png'), bbox_inches="tight")
+                fig1.savefig(os.path.join(path if path is not None else self.matrices_path,
+                                          self.DATASET_NAME + '_user_interaction_distr.png'), bbox_inches="tight")
+                fig3.savefig(os.path.join(path if path is not None else self.matrices_path,
+                                          self.DATASET_NAME + '_95th_interaction_distr.png'), bbox_inches="tight")
                 # fig2.savefig(os.path.join(path if path is not None else self.matrices_path, self.DATASET_NAME + '_item_interaction_distr.png'), bbox_inches="tight")
             else:
                 plt.show()

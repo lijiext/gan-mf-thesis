@@ -104,7 +104,7 @@ def make_dataset(dataset, specs):
         reader = Movielens(version=dataset, **specs)
     else:
         reader = dataset(**specs)
-
+    # 在这里获取数据集 从datasets/Movielens.py中获取reader
     sets = []
     URM_train = reader.get_URM_train()
     URM_test = reader.get_URM_test()
@@ -131,6 +131,7 @@ def load_URMs(dataset, specs):
             sets.append(sps.load_npz(urm))
     else:
         sets = make_dataset(dataset, specs)
+    #     返回 可迭代 的URM_train, URM_test, URM_validation, URM_train_small, URM_early_stop
     return tuple(sets)
 
 
@@ -194,7 +195,7 @@ class RecSysExp:
         if modules and modules.split('.')[0] == gans.__name__:
             self.isGAN = True
 
-        # EARLY STOPPING from Maurizio's framework for baselines
+        # EARLY STOPPING from Maurizio's framework for baselines 对于基准框架的early stopping
         self.early_stopping_parameters = {
             'epochs_min': 0,
             'validation_every_n': 5,
@@ -204,7 +205,7 @@ class RecSysExp:
             'evaluator_object': self.evaluator_earlystop
         }
 
-        # EARYL STOPPING for GAN-based recommenders
+        # EARYL STOPPING for GAN-based recommenders 对于 基于GAN 的 推荐算法的 early stopping
         self.my_early_stopping = {
             'allow_worse': 5,
             'freq': 5,
@@ -305,12 +306,13 @@ class RecSysExp:
         """
         Runs the hyperparameter search using Gaussian Process as surrogate model or Random Search,
         saves the results of the trials and print the best found parameters.
-
+        使用 高斯过程 作为 替代模型 进行 超参数 搜索 或 随机搜索
+        保存 并 打印 训练 得到的 最佳 参数
         Parameters
         ----------
         params: list
             List of skopt.space.space.Dimensions to be searched.
-
+        参数为 scikit-learn Base class for search space dimensions
         evals: int
             Number of evaluations to perform.
 
@@ -325,7 +327,7 @@ class RecSysExp:
         msg = 'Started ' + self.recommender_class.RECOMMENDER_NAME + ' ' + self.dataset_name
         subprocess.run(['telegram-send', msg])
 
-
+        # URM_test CSR矩阵的shape
         U, I = self.URM_test.shape
 
         if self.recommender_class == GANMF:
@@ -358,7 +360,7 @@ class RecSysExp:
 
         if len(params) > 0:
 
-            # Check if there is already a checkpoint for this experiment
+            # Check if there is already a checkpoint for this experiment 检查点
             checkpoint_path = os.path.join(self.logsdir, 'checkpoint.pkl')
             checkpoint_exists = True if os.path.exists(checkpoint_path) else False
             checkpoint_saver = CheckpointSaver(os.path.join(self.logsdir, 'checkpoint.pkl'), compress=3)
@@ -379,7 +381,7 @@ class RecSysExp:
                                              x0=previous_run.x_iters, y0=previous_run.func_vals, random_state=seed,
                                              verbose=True, callback=[checkpoint_saver])
             else:
-
+                # 超参数优化
                 if self.method == 'bayesian':
                     results = gp_minimize(self.obj_func, params, n_calls=evals, random_state=seed, verbose=True,
                                           callback=[checkpoint_saver])
@@ -467,9 +469,11 @@ def main(arguments):
         selected_datasets = all_datasets
         run_all = True
 
+    # user-based 训练
     if '--user' in arguments:
         train_mode = 'user'
 
+    # item-based 训练
     if '--item' in arguments:
         train_mode = 'item'
 
@@ -487,13 +491,14 @@ def main(arguments):
 
 
     # Experiment parameters
+    # puresvd参数
     puresvd_dimensions = [
         Integer(1, 250, name='num_factors', dtype=int)
     ]
     puresvd_fit_params = [d.name for d in puresvd_dimensions]
 
 
-
+    # als参数
     ials_dimensions = [
         Integer(1, 250, name='num_factors', dtype=int),
         Categorical(["linear", "log"], name='confidence_scaling'),
@@ -504,7 +509,7 @@ def main(arguments):
     ials_fit_params = [d.name for d in ials_dimensions]
 
 
-
+    # bpr参数 150epcochs
     bpr_dimensions = [
         Categorical([150], name='epochs'),
         Integer(1, 250, name='num_factors', dtype=int),
@@ -517,7 +522,7 @@ def main(arguments):
     bpr_fit_params = [d.name for d in bpr_dimensions]
 
 
-
+    # nmf参数
     nmf_dimensions = [
         Integer(1, 500, name='num_factors', dtype=int),
         Real(low=1e-5, high=1, prior='log-uniform', name='l1_ratio', dtype=float),
@@ -528,7 +533,7 @@ def main(arguments):
     nmf_fit_params = [d.name for d in nmf_dimensions]
 
 
-
+    # slimbpr参数 150epochs
     slimbpr_dimensions = [
         Integer(low=5, high=1000, prior='uniform', name='topK', dtype=int),
         Categorical([150], name='epochs'),
@@ -541,7 +546,7 @@ def main(arguments):
     slimbpr_fit_names = [d.name for d in slimbpr_dimensions]
 
 
-
+    # cfgan参数
     cfgan_dimensions = [
         Categorical([300], name='epochs'),
         Integer(1, 5, prior='uniform', name='d_steps', dtype=int),
@@ -564,7 +569,7 @@ def main(arguments):
     cfgan_fit_params = [d.name for d in cfgan_dimensions]
 
 
-
+    # ganmf参数
     ganmf_dimensions = [
         Categorical([300], name='epochs'),
         Integer(low=1, high=250, name='num_factors', dtype=int),
@@ -582,7 +587,7 @@ def main(arguments):
     ganmf_fit_params = [d.name for d in ganmf_dimensions]
 
 
-
+    # disgan参数
     disgan_dimensions = [
         Categorical([300], name='epochs'),
         Categorical(['linear', 'tanh', 'relu', 'sigmoid'], name='d_hidden_act'),
@@ -597,7 +602,7 @@ def main(arguments):
     disgan_fit_params = [d.name for d in disgan_dimensions]
 
 
-
+    # deepganmf参数
     deepganmf_dimensions = [
         Categorical([300], name='epochs'),
         Categorical(['linear', 'tanh', 'relu', 'sigmoid'], name='d_hidden_act'),
