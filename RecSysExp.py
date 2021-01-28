@@ -22,11 +22,11 @@ import numpy as np
 import tensorflow as tf
 import scipy.sparse as sps
 import multiprocessing as mp
-proxy = 'http://127.0.0.1:10809'
-os.environ['http_proxy'] = proxy
-os.environ['HTTP_PROXY'] = proxy
-os.environ['https_proxy'] = proxy
-os.environ['HTTPS_PROXY'] = proxy
+# proxy = 'http://127.0.0.1:10809'
+# os.environ['http_proxy'] = proxy
+# os.environ['HTTP_PROXY'] = proxy
+# os.environ['https_proxy'] = proxy
+# os.environ['HTTPS_PROXY'] = proxy
 
 warnings.filterwarnings('ignore', category=UserWarning)
 warnings.filterwarnings('ignore', category=FutureWarning)
@@ -509,9 +509,9 @@ def main(arguments):
     ials_fit_params = [d.name for d in ials_dimensions]
 
 
-    # bpr参数 150epcochs
+    # bpr参数 1500epcochs
     bpr_dimensions = [
-        Categorical([150], name='epochs'),
+        Categorical([1500], name='epochs'),
         Integer(1, 250, name='num_factors', dtype=int),
         Categorical([128, 256, 512, 1024], name='batch_size'),
         Categorical(["adagrad", "adam"], name='sgd_mode'),
@@ -533,10 +533,10 @@ def main(arguments):
     nmf_fit_params = [d.name for d in nmf_dimensions]
 
 
-    # slimbpr参数 150epochs
+    # slimbpr参数 1500epochs
     slimbpr_dimensions = [
         Integer(low=5, high=1000, prior='uniform', name='topK', dtype=int),
-        Categorical([150], name='epochs'),
+        Categorical([1500], name='epochs'),
         Categorical([True, False], name='symmetric'),
         Categorical(["sgd", "adagrad", "adam"], name='sgd_mode'),
         Real(low=1e-9, high=1e-3, prior='log-uniform', name='lambda_i', dtype=float),
